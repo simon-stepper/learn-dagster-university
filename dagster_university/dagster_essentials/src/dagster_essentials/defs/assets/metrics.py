@@ -1,21 +1,23 @@
-import dagster as dg
+from datetime import datetime, timedelta
 
+import dagster as dg
+from dagster_duckdb import DuckDBResource
 import matplotlib.pyplot as plt
 import geopandas as gpd
 import pandas as pd
-from datetime import datetime, timedelta
-
-import duckdb
-import os
 
 from dagster_essentials.defs.assets import constants
-from dagster._utils.backoff import backoff
+
 
 
 @dg.asset(
     deps=["taxi_trips", "taxi_zones"]
 )
-def manhattan_stats() -> None:
+def manhattan_stats(database: DuckDBResource) -> None:
+    """
+      Metrics on taxi trips in Manhattan
+    """
+    
     query = """
         select
             zones.zone,
@@ -28,8 +30,8 @@ def manhattan_stats() -> None:
         group by zone, borough, geometry
     """
 
-    conn = duckdb.connect(os.getenv("DUCKDB_DATABASE"))
-    trips_by_zone = conn.execute(query).fetch_df()
+    with database.get_connection() as conn:
+        trips_by_zone = conn.execute(query).fetch_df()
 
     trips_by_zone["geometry"] = gpd.GeoSeries.from_wkt(trips_by_zone["geometry"])
     trips_by_zone = gpd.GeoDataFrame(trips_by_zone)
@@ -57,16 +59,8 @@ def manhattan_map() -> None:
 @dg.asset(
     deps=["taxi_trips"]
 )
-def trips_by_week() -> None:
-    conn = backoff(
-        fn=duckdb.connect,
-        retry_on=(RuntimeError, duckdb.IOException),
-        kwargs={
-            "database": os.getenv("DUCKDB_DATABASE"),
-        },
-        max_retries=10,
-    )
-
+def trips_by_week(database: DuckDBResource) -> None:
+    
     current_date = datetime.strptime("2023-03-01", constants.DATE_FORMAT)
     end_date = datetime.strptime("2023-04-01", constants.DATE_FORMAT)
 
@@ -81,7 +75,8 @@ def trips_by_week() -> None:
             where date_trunc('week', pickup_datetime) = date_trunc('week', '{current_date_str}'::date)
         """
 
-        data_for_week = conn.execute(query).fetch_df()
+        with database.get_connection() as conn:
+            data_for_week = conn.execute(query).fetch_df()
 
         aggregate = data_for_week.agg({
             "vendor_id": "count",
