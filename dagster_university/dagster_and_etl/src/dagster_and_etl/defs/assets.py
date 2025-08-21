@@ -378,8 +378,3 @@ def dlt_nasa(context: dg.AssetExecutionContext, config: NasaDate):
 
     return load_info
 
-replication_config = dg.file_relative_path(__file__, "sling_replication.yml")
-
-@sling_assets(replication_config=replication_config)
-def postgres_sling_assets(context, sling: SlingResource):
-    yield from sling.replicate(context=context).fetch_column_metadata()
