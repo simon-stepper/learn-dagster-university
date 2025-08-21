@@ -21,3 +21,13 @@ def date_range_schedule(context):
             },
         },
     )
+
+postgres_refresh_schedule = dg.ScheduleDefinition(
+    job=jobs.postgres_refresh_job,
+    cron_schedule="0 6 * * *",
+)
+
+orders_refresh_schedule = dg.ScheduleDefinition(
+    job=jobs.orders_refresh_job,
+    cron_schedule="0 12,18 * * *",
+)

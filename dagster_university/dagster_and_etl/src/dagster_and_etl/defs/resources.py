@@ -3,6 +3,8 @@ from dagster_duckdb import DuckDBResource
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from dagster_dlt import DagsterDltResource
+from dagster_sling import SlingConnectionResource, SlingResource
 
 
 class NASAResource(dg.ConfigurableResource):
@@ -30,6 +32,29 @@ class NASAResource(dg.ConfigurableResource):
         resp = session.get(url, params=params)
         return resp.json()["near_earth_objects"][start_date]
 
+source = SlingConnectionResource(
+    name="MY_POSTGRES",
+    type="postgres",
+    host="localhost",
+    port=5432,
+    database="test_db",
+    user="test_user",
+    password="test_pass",
+)
+
+destination = SlingConnectionResource(
+    name="MY_DUCKDB",
+    type="duckdb",
+    connection_string="duckdb:///var/tmp/duckdb.db",
+)
+
+sling = SlingResource(
+    connections=[
+        source,
+        destination,
+    ]
+)
+
 @dg.definitions
 def resources():
     return dg.Definitions(
@@ -40,5 +65,7 @@ def resources():
             "database": DuckDBResource(
                 database="data/staging/data.duckdb",
             ),
+            "dlt": DagsterDltResource(),
+            "sling": sling,
         },
     )
