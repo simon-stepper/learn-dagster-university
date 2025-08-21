@@ -2,6 +2,7 @@ with raw_zones as (
     select *
     from {{ source('raw_taxis', 'zones') }}
 )
+
 select
     zone_id,
     zone as zone_name,
