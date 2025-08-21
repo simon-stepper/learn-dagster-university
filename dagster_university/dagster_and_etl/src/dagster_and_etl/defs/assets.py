@@ -2,6 +2,10 @@ import dagster as dg
 from pathlib import Path
 import csv
 from dagster_duckdb import DuckDBResource
+from dagster_and_etl.defs.resources import NASAResource
+
+import datetime
+from pydantic import field_validator
 
 class IngestionFileConfig(dg.Config):
     path: str
@@ -178,3 +182,85 @@ def duckdb_table_s3(
         """
         conn.execute(table_query)
         conn.execute(f"copy {table_name} from '{import_file_s3}' (format csv, header);")
+
+class NasaDate(dg.Config):
+    date: str
+
+    @field_validator("date")
+    @classmethod
+    def validate_date_format(cls, v):
+        try:
+            datetime.datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("event_date must be in 'YYYY-MM-DD' format")
+        return v
+
+nasa_partitions_def = dg.DailyPartitionsDefinition(
+    start_date="2025-07-01",
+)
+
+@dg.asset(
+    kinds={"nasa"},
+    partitions_def=nasa_partitions_def,
+)
+def asteroids_partition(
+    context: dg.AssetExecutionContext,
+    nasa: NASAResource,
+) -> list[dict]:
+    anchor_date = datetime.datetime.strptime(context.partition_key, "%Y-%m-%d")
+    start_date = (anchor_date - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+
+    return nasa.get_near_earth_asteroids(
+        start_date=start_date,
+        end_date=context.partition_key,
+    )
+
+@dg.asset
+def asteroids_file(
+    context: dg.AssetExecutionContext,
+    asteroids_partition,
+) -> Path:
+    filename = "asteroid_staging"
+    file_path = (
+        Path(__file__).absolute().parent / f"../../../data/staging/{filename}.csv"
+    )
+
+    # Only load specific fields
+    fields = [
+        "id",
+        "name",
+        "absolute_magnitude_h",
+        "is_potentially_hazardous_asteroid",
+    ]
+
+    with open(file_path, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=fields)
+
+        writer.writeheader()
+        writer.writerows(
+            {key: row[key] for key in fields if key in row} for row in asteroids_partition
+        )
+
+    return file_path
+
+@dg.asset(
+    kinds={"duckdb"},
+)
+def duckdb_asteroids_table(
+    context: dg.AssetExecutionContext,
+    database: DuckDBResource,
+    asteroids_file,
+) -> None:
+    table_name = "raw_asteroid_data"
+    with database.get_connection() as conn:
+        table_query = f"""
+            create table if not exists {table_name} (
+                id varchar(10),
+                name varchar(100),
+                absolute_magnitude_h float,
+                is_potentially_hazardous_asteroid boolean
+            ) 
+        """
+        conn.execute(table_query)
+        conn.execute(f"copy {table_name} from '{asteroids_file}'")
+

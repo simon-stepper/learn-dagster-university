@@ -17,3 +17,12 @@ import_dynamic_partition_job = dg.define_asset_job(
         assets.duckdb_dynamic_partition_table,
     ],
 )
+
+asteroid_job = dg.define_asset_job(
+    name="asteroid_job",
+    selection=[
+        assets.asteroids_partition,
+        assets.asteroids_file,
+        assets.duckdb_asteroids_table,
+    ],
+)
