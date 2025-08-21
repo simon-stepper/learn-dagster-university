@@ -140,3 +140,41 @@ def duckdb_dynamic_partition_table(
             f"delete from {table_name} where date = '{context.partition_key}';"
         )
         conn.execute(f"copy {table_name} from '{import_dynamic_partition_file}';")
+
+class IngestionFileS3Config(dg.Config):
+    bucket: str
+    path: str
+
+@dg.asset(
+    kinds={"s3"},
+)
+def import_file_s3(
+    context: dg.AssetExecutionContext,
+    config: IngestionFileS3Config,
+) -> str:
+    s3_path = f"s3://{config.bucket}/{config.path}"
+    return s3_path
+
+
+@dg.asset(
+    kinds={"duckdb"},
+)
+def duckdb_table_s3(
+    context: dg.AssetExecutionContext,
+    database: DuckDBResource,
+    import_file_s3: str,
+):
+    table_name = "raw_s3_data"
+    with database.get_connection() as conn:
+        table_query = f"""
+            create table if not exists {table_name} (
+                date date,
+                share_price float,
+                amount float,
+                spend float,
+                shift float,
+                spread float
+            ) 
+        """
+        conn.execute(table_query)
+        conn.execute(f"copy {table_name} from '{import_file_s3}' (format csv, header);")
